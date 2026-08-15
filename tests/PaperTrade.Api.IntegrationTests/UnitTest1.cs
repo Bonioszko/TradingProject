@@ -1,4 +1,4 @@
-﻿namespace PaperTrade.Api.IntegrationTests;
+namespace PaperTrade.Api.IntegrationTests;
 
 public class UnitTest1
 {

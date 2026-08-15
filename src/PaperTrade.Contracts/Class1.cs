@@ -1,4 +1,4 @@
-﻿namespace PaperTrade.Contracts;
+namespace PaperTrade.Contracts;
 
 public class Class1
 {

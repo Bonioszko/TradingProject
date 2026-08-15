@@ -1,4 +1,4 @@
-﻿namespace PaperTrade.Domain.Tests;
+namespace PaperTrade.Domain.Tests;
 
 public class UnitTest1
 {

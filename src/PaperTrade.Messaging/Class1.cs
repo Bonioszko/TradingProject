@@ -1,4 +1,4 @@
-﻿namespace PaperTrade.Messaging;
+namespace PaperTrade.Messaging;
 
 public class Class1
 {
