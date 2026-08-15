@@ -10,7 +10,7 @@ Phase 2, the synchronous trading slice, is complete. The API stores orders, acco
 
 - .NET SDK 10.0.400 or a compatible later .NET 10 feature band
 - Aspire CLI 13.4 or later
-- Docker Desktop (needed once PostgreSQL and RabbitMQ are introduced)
+- Docker Desktop with Linux containers (required for PostgreSQL and integration tests)
 
 ## Build and test
 
@@ -88,7 +88,7 @@ tests/PaperTrade.Api.IntegrationTests/  API integration tests
 docs/                                   Architecture and decision records
 ```
 
-See [the architecture overview](docs/architecture.md) and [the RabbitMQ client decision](docs/decisions/0001-use-rabbitmq-client.md).
+Start with the [documentation map](docs/README.md). The key references are the [architecture](docs/architecture.md), [roadmap](docs/roadmap.md), [development workflow](docs/development.md), [testing strategy](docs/testing.md), and [architecture decisions](docs/decisions/README.md). Contributors and coding agents should also read [CONTRIBUTING.md](CONTRIBUTING.md) and the closest `AGENTS.md`.
 
 ## Intended dependency direction
 
@@ -96,9 +96,4 @@ See [the architecture overview](docs/architecture.md) and [the RabbitMQ client d
 
 ## Delivery roadmap
 
-1. Repository foundation (complete)
-2. Synchronous domain model and PostgreSQL persistence (complete)
-3. Asynchronous order submission and execution
-4. Delivery reliability and idempotency
-5. Portfolio and market-data projections
-6. Blazor UI, observability, security, and deployment
+Phases 1 and 2 are complete. Phase 3 is the asynchronous order submission and execution slice. See [the roadmap](docs/roadmap.md) for scope and acceptance criteria.
