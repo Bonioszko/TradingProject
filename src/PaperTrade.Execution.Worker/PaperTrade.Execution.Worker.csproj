@@ -12,5 +12,6 @@
     <ProjectReference Include="..\PaperTrade.Contracts\PaperTrade.Contracts.csproj" />
     <ProjectReference Include="..\PaperTrade.Domain\PaperTrade.Domain.csproj" />
     <ProjectReference Include="..\PaperTrade.Messaging\PaperTrade.Messaging.csproj" />
+    <ProjectReference Include="..\PaperTrade.ServiceDefaults\PaperTrade.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

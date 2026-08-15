@@ -5,4 +5,12 @@
     <UserSecretsId>9363a5d1-27b9-41a7-9b5f-c1f6ab43922b</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\PaperTrade.Api\PaperTrade.Api.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -18,6 +18,8 @@ This validates the difficult properties of the system—transaction boundaries, 
 | `PaperTrade.Domain` | Order, account, execution, and financial invariants | None |
 | `PaperTrade.Contracts` | Versioned commands and integration events | None |
 | `PaperTrade.Messaging` | RabbitMQ connections, topology, publishing, and consuming | Contracts |
+| `PaperTrade.Trading.Persistence` | EF Core mapping, migration, and seed data for the `trading` schema | Domain |
+| `PaperTrade.ServiceDefaults` | Shared OpenTelemetry, health checks, service discovery, and HTTP resilience | Host infrastructure only |
 | `PaperTrade.Api` | Accept commands and serve order, execution, and portfolio queries | Domain, Contracts, Messaging |
 | `PaperTrade.Execution.Worker` | Validate and execute submitted orders | Domain, Contracts, Messaging |
 | `PaperTrade.Portfolio.Worker` | Build idempotent portfolio projections | Contracts, Messaging |
@@ -57,4 +59,4 @@ No component should claim exactly-once transport delivery.
 
 ## Phase boundaries
 
-Phase 1 establishes repository policy and dependency direction only. Phase 2 should implement and unit-test synchronous domain behavior before adding EF Core. Phase 3 adds the API outbox and execution messaging path. Reliability mechanisms should be implemented with the first consumer, then hardened with integration tests before the portfolio projection is expanded.
+Phase 1 established repository policy and dependency direction. Phase 2 implements synchronous domain behavior, PostgreSQL persistence, and real PostgreSQL integration testing. Its API deliberately returns `201 Created` after executing the order. Phase 3 will split this transaction at the asynchronous boundary: the API will store a pending order and outbox message, return `202 Accepted`, and the execution worker will perform the authoritative cash/order/execution transaction. Reliability mechanisms should arrive with that first consumer and be hardened before the portfolio projection expands.

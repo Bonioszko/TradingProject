@@ -1,6 +1,23 @@
-@PaperTrade.Api_HostAddress = http://localhost:5138
+@PaperTrade_Api_HostAddress = https://localhost:7192
+@AccountId = 10000000-0000-0000-0000-000000000001
 
-GET {{PaperTrade.Api_HostAddress}}/weatherforecast/
+GET {{PaperTrade_Api_HostAddress}}/api/instruments
 Accept: application/json
 
 ###
+
+GET {{PaperTrade_Api_HostAddress}}/api/accounts/{{AccountId}}
+Accept: application/json
+
+###
+
+POST {{PaperTrade_Api_HostAddress}}/api/orders
+Content-Type: application/json
+
+{
+  "accountId": "{{AccountId}}",
+  "symbol": "MSFT",
+  "side": "buy",
+  "type": "market",
+  "quantity": 5
+}

@@ -1,13 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PaperTrade.Contracts\PaperTrade.Contracts.csproj" />
     <ProjectReference Include="..\PaperTrade.Domain\PaperTrade.Domain.csproj" />
     <ProjectReference Include="..\PaperTrade.Messaging\PaperTrade.Messaging.csproj" />
+    <ProjectReference Include="..\PaperTrade.ServiceDefaults\PaperTrade.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\PaperTrade.Trading.Persistence\PaperTrade.Trading.Persistence.csproj" />
   </ItemGroup>
 
 </Project>
