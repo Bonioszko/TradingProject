@@ -1,0 +1,103 @@
+# .NET build output
+**/[Bb]in/
+**/[Oo]bj/
+[Aa]rtifacts/
+[Pp]ublish/
+out/
+
+# Visual Studio
+.vs/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+*.opendb
+*.cachefile
+*.VC.db-shm
+*.VC.db-wal
+
+# JetBrains Rider / ReSharper
+.idea/
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# VS Code local state
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# NuGet output and local package caches
+packages/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+
+# Test, coverage, benchmark, and profiling output
+[Tt]est[Rr]esult*/
+[Tt]est-[Rr]esult*/
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.trx
+*.testlog
+BenchmarkDotNet.Artifacts/
+*.diagsession
+*.psess
+*.vsp
+*.vspx
+
+# Aspire-generated local state and deployment artifacts
+.aspire/
+**/.aspire/
+aspire-manifest.json
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.template
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+*.pfx
+*.p12
+*.key
+
+# Local databases and runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.data/
+data-local/
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Generated Entity Framework bundles
+efbundle
+efbundle.exe
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Locally installed coding-agent skills
+.agents/

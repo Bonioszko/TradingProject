@@ -1,0 +1,6 @@
+@PaperTrade.Api_HostAddress = http://localhost:5138
+
+GET {{PaperTrade.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
