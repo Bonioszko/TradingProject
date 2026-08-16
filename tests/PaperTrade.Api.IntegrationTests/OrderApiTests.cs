@@ -74,6 +74,37 @@ public sealed class OrderApiTests(PaperTradeApiFixture fixture) : IClassFixture<
         Assert.Equal(98_000m, accountAfterRejection?.AvailableCash);
     }
 
+    [Fact]
+    public async Task SubmitInvalidMarketOrderReturnsProblemDetailsFromGlobalHandler()
+    {
+        using var response = await fixture.Client.PostAsJsonAsync(
+            "/api/orders",
+            new
+            {
+                accountId = SeedData.AccountId,
+                symbol = "MSFT",
+                side = "buy",
+                type = "market",
+                quantity = 1m,
+                limitPrice = 400m
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = problem.RootElement;
+
+        Assert.Equal("Invalid order", root.GetProperty("title").GetString());
+        Assert.Equal(400, root.GetProperty("status").GetInt32());
+        var detail = root.GetProperty("detail").GetString();
+        Assert.NotNull(detail);
+        Assert.Contains(
+            "A market order cannot specify a limit price.",
+            detail);
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("traceId").GetString()));
+    }
+
     private static JsonSerializerOptions CreateJsonOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);

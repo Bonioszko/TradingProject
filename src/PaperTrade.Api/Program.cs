@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using PaperTrade.Api;
 using PaperTrade.Api.Endpoints;
+using PaperTrade.Api.ErrorHandling;
 using PaperTrade.Api.Orders;
 using PaperTrade.Trading.Persistence;
 
@@ -11,6 +12,7 @@ builder.AddNpgsqlDbContext<TradingDbContext>("papertrade");
 
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(TimeProvider.System);

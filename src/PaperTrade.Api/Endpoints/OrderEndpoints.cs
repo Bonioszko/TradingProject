@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.EntityFrameworkCore;
 using PaperTrade.Api.Orders;
 
 namespace PaperTrade.Api.Endpoints;
@@ -29,36 +28,18 @@ public static class OrderEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        try
+        var result = await service.SubmitAsync(request, cancellationToken);
+        return result.Error switch
         {
-            var result = await service.SubmitAsync(request, cancellationToken);
-            return result.Error switch
-            {
-                OrderSubmissionError.None => Results.Created(
-                    $"/api/orders/{result.Order!.OrderId}",
-                    result.Order),
-                OrderSubmissionError.NotFound => Results.NotFound(
-                    new ProblemDetailsResponse("Resource not found", result.ErrorMessage!)),
-                OrderSubmissionError.Unsupported => Results.UnprocessableEntity(
-                    new ProblemDetailsResponse("Unsupported order", result.ErrorMessage!)),
-                _ => throw new UnreachableException()
-            };
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            return Results.Conflict(new ProblemDetailsResponse(
-                "Concurrent account update",
-                "The account changed while the order was executing. Submit the order again."));
-        }
-        catch (ArgumentException exception)
-        {
-            return Results.BadRequest(new ProblemDetailsResponse("Invalid order", exception.Message));
-        }
-        catch (InvalidOperationException exception)
-        {
-            return Results.UnprocessableEntity(
-                new ProblemDetailsResponse("Order rejected", exception.Message));
-        }
+            OrderSubmissionError.None => Results.Created(
+                $"/api/orders/{result.Order!.OrderId}",
+                result.Order),
+            OrderSubmissionError.NotFound => Results.NotFound(
+                new ProblemDetailsResponse("Resource not found", result.ErrorMessage!)),
+            OrderSubmissionError.Unsupported => Results.UnprocessableEntity(
+                new ProblemDetailsResponse("Unsupported order", result.ErrorMessage!)),
+            _ => throw new UnreachableException()
+        };
     }
 
     private static async Task<IResult> GetOrderAsync(
