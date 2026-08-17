@@ -56,6 +56,16 @@ public sealed class OutboxMessage
 
     public int PublishAttempts { get; private set; }
 
+    public DateTimeOffset? NextAttemptAt { get; private set; }
+
+    public Guid? LeaseId { get; private set; }
+
+    public DateTimeOffset? LeaseExpiresAt { get; private set; }
+
+    public DateTimeOffset? SuspendedAt { get; private set; }
+
+    public string? LastErrorCode { get; private set; }
+
     public string? LastError { get; private set; }
 
     public static OutboxMessage Create(
@@ -104,17 +114,79 @@ public sealed class OutboxMessage
             traceParent);
     }
 
-    public void MarkPublished(DateTimeOffset publishedAt)
+    public void Claim(Guid leaseId, DateTimeOffset leaseExpiresAt)
     {
-        PublishedAt = publishedAt;
+        if (leaseId == Guid.Empty)
+        {
+            throw new ArgumentException("A lease ID is required.", nameof(leaseId));
+        }
+
+        if (PublishedAt is not null || SuspendedAt is not null)
+        {
+            throw new InvalidOperationException("Only active unpublished messages can be leased.");
+        }
+
+        LeaseId = leaseId;
+        LeaseExpiresAt = leaseExpiresAt;
         PublishAttempts++;
+    }
+
+    public void MarkPublished(Guid leaseId, DateTimeOffset publishedAt)
+    {
+        EnsureLease(leaseId);
+        PublishedAt = publishedAt;
+        NextAttemptAt = null;
+        LeaseId = null;
+        LeaseExpiresAt = null;
+        SuspendedAt = null;
+        LastErrorCode = null;
         LastError = null;
     }
 
-    public void RecordFailure(string error)
+    public void RecordFailure(
+        Guid leaseId,
+        string errorCode,
+        string error,
+        DateTimeOffset failedAt,
+        DateTimeOffset? nextAttemptAt)
     {
+        EnsureLease(leaseId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
-        PublishAttempts++;
+        LastErrorCode = errorCode;
         LastError = error.Length <= MaximumErrorLength ? error : error[..MaximumErrorLength];
+        NextAttemptAt = nextAttemptAt;
+        SuspendedAt = nextAttemptAt is null ? failedAt : null;
+        LeaseId = null;
+        LeaseExpiresAt = null;
+    }
+
+    public void Replay(DateTimeOffset replayedAt)
+    {
+        if (PublishedAt is not null)
+        {
+            throw new InvalidOperationException("A published message cannot be replayed from the outbox.");
+        }
+
+        if (SuspendedAt is null)
+        {
+            throw new InvalidOperationException("Only a suspended message can be replayed.");
+        }
+
+        PublishAttempts = 0;
+        NextAttemptAt = replayedAt;
+        LeaseId = null;
+        LeaseExpiresAt = null;
+        SuspendedAt = null;
+        LastErrorCode = null;
+        LastError = null;
+    }
+
+    private void EnsureLease(Guid leaseId)
+    {
+        if (leaseId == Guid.Empty || LeaseId != leaseId)
+        {
+            throw new InvalidOperationException("The outbox lease is no longer owned by this dispatcher.");
+        }
     }
 }

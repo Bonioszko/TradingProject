@@ -1,8 +1,8 @@
 # PaperTrade architecture
 
-Status: Phase 3 implemented; Phase 4 is the next target
+Status: Phase 4 implemented; Phase 5 is the next target
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-17
 
 ## Purpose
 
@@ -20,7 +20,7 @@ The architecture optimizes for explicit transaction boundaries, observable failu
 6. Prefer a modular monorepo and one local orchestrator until independent deployment is justified.
 7. Treat observability and failure recovery as part of feature completeness.
 
-## Current system: Phase 3
+## Current system: Phase 4
 
 The implemented workflow crosses one asynchronous boundary:
 
@@ -44,6 +44,16 @@ Client -- POST + Idempotency-Key --> API submission transaction
 ```
 
 Aspire orchestrates PostgreSQL, RabbitMQ, the API, and the execution worker. The portfolio worker remains inactive. The API-hosted trading outbox dispatcher publishes both submitted commands and terminal results from the shared trading schema.
+
+Phase 4 hardens the same boundary without adding product breadth:
+
+- dispatchers claim PostgreSQL outbox batches with `FOR UPDATE SKIP LOCKED`, an expiring lease, and lease concurrency checks;
+- publish/connect operations are bounded, failures are classified, and transient retries use exponential backoff with stable jitter;
+- exhausted or permanent publications suspend for explicit operator replay;
+- RabbitMQ connections are recreated after transport failure and consumer sessions recover after connection/channel loss;
+- shutdown cancels intake and drains in-flight handlers for a bounded grace period before relying on redelivery;
+- published outbox and inbox rows have configurable retention cleanup;
+- health, metrics, structured logs, and Development-only operational endpoints expose backlog, suspension, dead letters, replay, and cleanup.
 
 ## Target system: portfolio projection
 
@@ -82,11 +92,11 @@ The API remains the query boundary initially. Splitting a query service is not j
 | --- | --- | --- | --- |
 | `PaperTrade.Domain` | Trading entities, state transitions, and financial invariants | None | Implemented |
 | `PaperTrade.Contracts` | Versioned integration commands and events | None | Implemented for order submission/results |
-| `PaperTrade.Messaging` | RabbitMQ abstraction, topology, publishing, and consuming | Contracts | Implemented |
+| `PaperTrade.Messaging` | RabbitMQ abstraction, topology, bounded publishing, connection recovery, consuming, and dead-letter operations | Contracts | Reliability-hardened |
 | `PaperTrade.Trading.Persistence` | EF Core mapping, migrations, and seed data for `trading` | Domain | Implemented |
 | `PaperTrade.ServiceDefaults` | Health, discovery, resilience, and OpenTelemetry defaults | Host infrastructure only | Implemented |
-| `PaperTrade.Api` | HTTP commands/queries, submission transaction, and trading outbox dispatch | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Asynchronous submission implemented |
-| `PaperTrade.Execution.Worker` | Authoritative asynchronous execution | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Implemented |
+| `PaperTrade.Api` | HTTP commands/queries, submission transaction, leased trading outbox dispatch, retention, and Development operations | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Reliability-hardened |
+| `PaperTrade.Execution.Worker` | Authoritative asynchronous execution | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Reliability-hardened |
 | `PaperTrade.Portfolio.Worker` | Idempotent portfolio projection | Contracts, Messaging, portfolio persistence, ServiceDefaults | Inactive placeholder |
 | `PaperTrade.AppHost` | Local resource graph and operational dependencies | Hosts and Aspire integrations | PostgreSQL + RabbitMQ + API + execution worker |
 
@@ -168,10 +178,12 @@ RabbitMQ provides at-least-once delivery. PaperTrade obtains idempotent observab
 
 - producers persist state and an outbox row in one database transaction;
 - dispatchers publish durable messages and wait for publisher confirms;
+- dispatchers claim rows through expiring leases and apply bounded classified backoff;
 - a crash after broker confirmation but before marking an outbox row sent may publish a duplicate;
 - consumers persist inbox state and business changes in one database transaction;
 - consumers acknowledge only after commit;
 - retry is bounded and terminal failures are dead-lettered with diagnostic context;
+- suspended outbox rows and supported dead letters require deliberate operator replay;
 - message ID is unique, correlation ID follows the workflow, causation ID identifies the triggering message, and trace context follows OpenTelemetry conventions.
 
 HTTP idempotency and message deduplication are separate protections at separate retry boundaries. Neither substitutes for the other.
@@ -182,7 +194,7 @@ Order submission returns `202 Accepted` with a pending order resource that can b
 
 ## Runtime, observability, and security
 
-Aspire is the local control plane for process lifecycle, dependency injection, readiness, logs, traces, and metrics. PostgreSQL and RabbitMQ state are intentionally persistent locally, and both hosts wait for their required resource references.
+Aspire is the local control plane for process lifecycle, dependency injection, readiness, logs, traces, and metrics. PostgreSQL and RabbitMQ state are intentionally persistent locally, and both hosts wait for their required resource references. The [reliability runbook](reliability-runbook.md) defines inspection, replay, cleanup, and initial alert thresholds.
 
 Every process uses `PaperTrade.ServiceDefaults`. Telemetry must correlate HTTP submission, outbox dispatch, broker delivery, execution, and projection without recording credentials or sensitive payload values. Liveness indicates a process is alive; readiness may depend on required resources.
 
@@ -196,4 +208,4 @@ The current system is development-only and unauthenticated. Before any public de
 - Preserve the domain and persistence evidence established by the synchronous baseline; do not restore synchronous HTTP execution.
 - Do not add limit orders, live pricing, UI, or authentication to the first asynchronous slice.
 
-See [ADR 0001](decisions/0001-use-rabbitmq-client.md), [ADR 0002](decisions/0002-use-modular-monorepo-and-schema-ownership.md), and [ADR 0003](decisions/0003-build-synchronous-slice-before-messaging.md).
+See [ADR 0001](decisions/0001-use-rabbitmq-client.md), [ADR 0002](decisions/0002-use-modular-monorepo-and-schema-ownership.md), [ADR 0003](decisions/0003-build-synchronous-slice-before-messaging.md), and [ADR 0004](decisions/0004-use-leased-outbox-and-explicit-recovery.md).

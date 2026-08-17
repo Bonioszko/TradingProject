@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PaperTrade.Api;
+using PaperTrade.Api.Messaging;
 using PaperTrade.Domain.Accounts;
 using PaperTrade.Execution.Worker;
 using PaperTrade.Messaging;
@@ -36,6 +37,7 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
     private HttpClient? client;
     private string? previousPostgresConnectionString;
     private string? previousRabbitMqConnectionString;
+    private string? configuredRabbitMqConnectionString;
 
     public HttpClient Client => client ?? throw new InvalidOperationException("The API fixture is not initialized.");
 
@@ -47,6 +49,7 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
         previousRabbitMqConnectionString = Environment.GetEnvironmentVariable(RabbitMqVariable);
         Environment.SetEnvironmentVariable(PostgresVariable, postgres.GetConnectionString());
         Environment.SetEnvironmentVariable(RabbitMqVariable, rabbitMq.GetConnectionString());
+        configuredRabbitMqConnectionString = rabbitMq.GetConnectionString();
 
         application = new TestApplicationFactory(
             postgres.GetConnectionString(),
@@ -90,6 +93,29 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
         worker = null;
     }
 
+    public Task StopRabbitMqAsync() => rabbitMq.PauseAsync();
+
+    public async Task StartRabbitMqAsync()
+    {
+        await rabbitMq.UnpauseAsync();
+        var restartedConnectionString = rabbitMq.GetConnectionString();
+        if (!string.Equals(
+                configuredRabbitMqConnectionString,
+                restartedConnectionString,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The RabbitMQ Testcontainer restarted on a different endpoint. " +
+                $"Configured: '{configuredRabbitMqConnectionString}', restarted: '{restartedConnectionString}'.");
+        }
+
+        await WaitForRabbitMqReadyAsync(TimeSpan.FromSeconds(15));
+    }
+
+    public Task StopPostgresAsync() => postgres.PauseAsync();
+
+    public Task StartPostgresAsync() => postgres.UnpauseAsync();
+
     public async Task<Guid> CreateAccountAsync(decimal availableCash)
     {
         var accountId = Guid.NewGuid();
@@ -127,7 +153,7 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
     public async Task WaitForSubmittedQueueToDrainAsync(TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
-        var connection = Services.GetRequiredService<IConnection>();
+        await using var connection = await CreateRabbitMqConnectionAsync();
         await using var channel = await connection.CreateChannelAsync();
         while (DateTimeOffset.UtcNow < deadline)
         {
@@ -160,8 +186,169 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
             CancellationToken.None);
     }
 
+    public async Task PurgeQueueAsync(string queueName)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        Exception? lastFailure = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                await using var connection = await CreateRabbitMqConnectionAsync();
+                await using var channel = await connection.CreateChannelAsync();
+                await channel.QueuePurgeAsync(queueName);
+                return;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                lastFailure = exception;
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+        }
+
+        throw new TimeoutException(
+            $"RabbitMQ queue '{queueName}' could not be purged after connection recovery.",
+            lastFailure);
+    }
+
+    public async Task<Guid> CreateSuspendedOutboxMessageAsync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var messageId = Guid.NewGuid();
+        var leaseId = Guid.NewGuid();
+        var message = OutboxMessage.Create(
+            messageId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            PaperTrade.Contracts.Orders.OrderContractNames.ResultV1,
+            PaperTrade.Contracts.Orders.OrderContractNames.Version1,
+            RabbitMqTopology.EventExchange,
+            RabbitMqTopology.OrderFilledRoutingKey,
+            "{}",
+            now,
+            traceParent: null);
+        message.Claim(leaseId, now + TimeSpan.FromMinutes(1));
+        message.RecordFailure(
+            leaseId,
+            "test-permanent",
+            "A permanent test publication failure.",
+            now,
+            nextAttemptAt: null);
+
+        using var scope = Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        context.OutboxMessages.Add(message);
+        await context.SaveChangesAsync();
+        return messageId;
+    }
+
+    public async Task<(Guid OutboxMessageId, Guid InboxMessageId)> CreateExpiredReliabilityRecordsAsync()
+    {
+        var occurredAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(40);
+        var outboxMessageId = Guid.NewGuid();
+        var leaseId = Guid.NewGuid();
+        var outbox = OutboxMessage.Create(
+            outboxMessageId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            PaperTrade.Contracts.Orders.OrderContractNames.ResultV1,
+            PaperTrade.Contracts.Orders.OrderContractNames.Version1,
+            RabbitMqTopology.EventExchange,
+            RabbitMqTopology.OrderFilledRoutingKey,
+            "{}",
+            occurredAt,
+            traceParent: null);
+        outbox.Claim(leaseId, occurredAt + TimeSpan.FromMinutes(1));
+        outbox.MarkPublished(leaseId, occurredAt + TimeSpan.FromMinutes(1));
+        var inboxMessageId = Guid.NewGuid();
+
+        using var scope = Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+        context.OutboxMessages.Add(outbox);
+        context.InboxMessages.Add(
+            InboxMessage.Processed(inboxMessageId, "retention-test", occurredAt));
+        await context.SaveChangesAsync();
+        return (outboxMessageId, inboxMessageId);
+    }
+
+    public async Task<IReadOnlyCollection<Guid>> ClaimFutureOutboxMessagesConcurrentlyAsync(int count)
+    {
+        var readyAt = DateTimeOffset.UtcNow + TimeSpan.FromDays(1);
+        var messageIds = Enumerable.Range(0, count).Select(_ => Guid.NewGuid()).ToArray();
+        using (var seedScope = Services.CreateScope())
+        {
+            var context = seedScope.ServiceProvider.GetRequiredService<TradingDbContext>();
+            foreach (var messageId in messageIds)
+            {
+                var initialLease = Guid.NewGuid();
+                var message = OutboxMessage.Create(
+                    messageId,
+                    Guid.NewGuid(),
+                    Guid.NewGuid(),
+                    PaperTrade.Contracts.Orders.OrderContractNames.ResultV1,
+                    PaperTrade.Contracts.Orders.OrderContractNames.Version1,
+                    RabbitMqTopology.EventExchange,
+                    RabbitMqTopology.OrderFilledRoutingKey,
+                    "{}",
+                    DateTimeOffset.UtcNow - TimeSpan.FromDays(36500),
+                    traceParent: null);
+                message.Claim(initialLease, readyAt);
+                message.RecordFailure(
+                    initialLease,
+                    "test-delay",
+                    "Delayed for the concurrent leasing test.",
+                    DateTimeOffset.UtcNow,
+                    readyAt);
+                context.OutboxMessages.Add(message);
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        using var firstScope = Services.CreateScope();
+        using var secondScope = Services.CreateScope();
+        var firstStore = firstScope.ServiceProvider.GetRequiredService<TradingOutboxStore>();
+        var secondStore = secondScope.ServiceProvider.GetRequiredService<TradingOutboxStore>();
+        var firstClaim = firstStore.ClaimBatchAsync(
+            Guid.NewGuid(),
+            readyAt,
+            TimeSpan.FromMinutes(10),
+            count / 2,
+            CancellationToken.None);
+        var secondClaim = secondStore.ClaimBatchAsync(
+            Guid.NewGuid(),
+            readyAt,
+            TimeSpan.FromMinutes(10),
+            count / 2,
+            CancellationToken.None);
+        var claimed = await Task.WhenAll(firstClaim, secondClaim);
+        return claimed.SelectMany(batch => batch).Select(message => message.MessageId).ToArray();
+    }
+
     public Task WaitForDeadLetterAsync(TimeSpan timeout) =>
         WaitForQueueMessageAsync(RabbitMqTopology.DeadLetterQueue, timeout);
+
+    public Task WaitForSubmittedMessageAsync(TimeSpan timeout) =>
+        WaitForQueueMessageAsync(RabbitMqTopology.OrderSubmittedQueue, timeout);
+
+    public async Task WaitForSubmittedDeliveryInFlightAsync(TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        await using var connection = await CreateRabbitMqConnectionAsync();
+        await using var channel = await connection.CreateChannelAsync();
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var queue = await channel.QueueDeclarePassiveAsync(RabbitMqTopology.OrderSubmittedQueue);
+            if (queue.ConsumerCount > 0 && queue.MessageCount == 0)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+
+        throw new TimeoutException("The submitted order was not observed in-flight at the execution worker.");
+    }
 
     public async Task<TResult> QueryAsync<TResult>(Func<TradingDbContext, Task<TResult>> query)
     {
@@ -200,7 +387,8 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
         new(StringComparer.Ordinal)
         {
             ["ConnectionStrings:papertrade"] = postgres.GetConnectionString(),
-            ["ConnectionStrings:messaging"] = rabbitMq.GetConnectionString()
+            ["ConnectionStrings:messaging"] = rabbitMq.GetConnectionString(),
+            ["MessagingReliability:ShutdownGracePeriod"] = "00:00:02"
         };
 
     private void RestoreEnvironment()
@@ -209,10 +397,44 @@ public sealed class PaperTradeApiFixture : IAsyncLifetime, IDisposable
         Environment.SetEnvironmentVariable(RabbitMqVariable, previousRabbitMqConnectionString);
     }
 
+    private Task<IConnection> CreateRabbitMqConnectionAsync()
+    {
+        var factory = new ConnectionFactory
+        {
+            Uri = new Uri(rabbitMq.GetConnectionString(), UriKind.Absolute),
+            AutomaticRecoveryEnabled = true,
+            TopologyRecoveryEnabled = true
+        };
+        return factory.CreateConnectionAsync();
+    }
+
+    private async Task WaitForRabbitMqReadyAsync(TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        Exception? lastFailure = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                await using var connection = await CreateRabbitMqConnectionAsync();
+                await using var channel = await connection.CreateChannelAsync();
+                await channel.QueueDeclarePassiveAsync(RabbitMqTopology.OrderSubmittedQueue);
+                return;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                lastFailure = exception;
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+        }
+
+        throw new TimeoutException("RabbitMQ did not become ready after restart.", lastFailure);
+    }
+
     private async Task WaitForQueueMessageAsync(string queueName, TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
-        var connection = Services.GetRequiredService<IConnection>();
+        await using var connection = await CreateRabbitMqConnectionAsync();
         await using var channel = await connection.CreateChannelAsync();
         while (DateTimeOffset.UtcNow < deadline)
         {

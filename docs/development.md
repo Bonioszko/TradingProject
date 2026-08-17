@@ -1,6 +1,6 @@
 # Development workflow
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-17
 
 ## Prerequisites
 
@@ -42,6 +42,8 @@ aspire otel logs api
 aspire logs api
 aspire otel traces api
 ```
+
+For backlog, suspended publication, dead-letter replay, and retention procedures, use the [reliability runbook](reliability-runbook.md). The `/internal/operations/reliability` endpoints are Development-only and must not be treated as a production administrative API.
 
 If only one running resource changed, prefer `aspire resource api rebuild` followed by `aspire wait api` when that command is exposed. Restart the AppHost when the AppHost model or integrations change. Stop an instance started for validation when finished:
 

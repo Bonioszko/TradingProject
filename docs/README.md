@@ -9,6 +9,7 @@ Use each document for one kind of truth:
 | [Roadmap](roadmap.md) | Phase sequencing, current status, and acceptance criteria |
 | [Development](development.md) | Local workflow, commands, migrations, and definition of done |
 | [Testing](testing.md) | Test levels, environments, and reliability scenarios |
+| [Reliability runbook](reliability-runbook.md) | Inspection, replay, retention, metrics, alerts, and outage response |
 | [Codex workflow](codex-workflow.md) | Repository instruction hierarchy and effective task handoff |
 | [Decision records](decisions/README.md) | Durable architectural decisions and their consequences |
 

@@ -4,7 +4,7 @@ PaperTrade is a portfolio project for learning reliable asynchronous workflows i
 
 ## Current status
 
-Phase 3, asynchronous order submission and execution, is implemented. The API atomically stores a pending order, HTTP idempotency record, and outbox message before returning `202 Accepted`. RabbitMQ delivers the command to the execution worker, which atomically deduplicates it, debits authoritative buying power, fills or rejects the order, and writes the result to the outbox. The portfolio worker remains an inactive placeholder for Phase 5.
+Phase 4 reliability hardening is implemented. The asynchronous Phase 3 order flow now adds leased/batched outbox dispatch, bounded classified backoff, explicit RabbitMQ connection recovery, graceful consumer drain, operational inspection/replay, retention cleanup, reliability telemetry, and real dependency-interruption tests. The portfolio worker remains an inactive placeholder for Phase 5.
 
 ## Prerequisites
 
@@ -71,6 +71,12 @@ Useful endpoints:
 - `GET /api/accounts/{accountId}`
 - `GET /api/instruments`
 - `GET /health` and `GET /alive` in Development
+- `GET /internal/operations/reliability` in Development
+- `POST /internal/operations/reliability/outbox/{messageId}/replay` in Development
+- `POST /internal/operations/reliability/dead-letters/replay-next` in Development
+- `POST /internal/operations/reliability/retention/run` in Development
+
+The internal operational endpoints are unauthenticated and mapped only in Development. See the [reliability runbook](docs/reliability-runbook.md) before replaying or deleting retained records.
 
 ## Project layout
 
@@ -97,4 +103,4 @@ Start with the [documentation map](docs/README.md). The key references are the [
 
 ## Delivery roadmap
 
-Phases 1 through 3 are complete. Phase 4 hardens recovery, operations, and fault injection before portfolio projection work begins. See [the roadmap](docs/roadmap.md) for scope and acceptance criteria.
+Phases 1 through 4 are complete. Phase 5 adds portfolio and market-data projections without changing trading authority. See [the roadmap](docs/roadmap.md) for scope and acceptance criteria.

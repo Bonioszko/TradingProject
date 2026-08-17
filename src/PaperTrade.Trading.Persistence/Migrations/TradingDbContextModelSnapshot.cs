@@ -287,6 +287,20 @@ namespace PaperTrade.Trading.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("OccurredAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -301,6 +315,9 @@ namespace PaperTrade.Trading.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<DateTimeOffset?>("SuspendedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("TraceParent")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -309,7 +326,7 @@ namespace PaperTrade.Trading.Persistence.Migrations
 
                     b.HasIndex("AggregateId");
 
-                    b.HasIndex("PublishedAt", "OccurredAt");
+                    b.HasIndex("PublishedAt", "SuspendedAt", "NextAttemptAt", "LeaseExpiresAt", "OccurredAt");
 
                     b.ToTable("outbox_messages", "trading");
                 });

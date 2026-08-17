@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using PaperTrade.Contracts.Orders;
 using PaperTrade.Messaging;
 
@@ -51,7 +52,38 @@ public sealed partial class OrderExecutionConsumer(
         }
         catch (DbUpdateConcurrencyException exception)
         {
-            LogTransientFailure(exception, envelope.Metadata.MessageId, envelope.Payload.OrderId);
+            LogTransientFailure(
+                exception,
+                envelope.Metadata.MessageId,
+                envelope.Payload.OrderId,
+                "database-concurrency");
+            return MessageDisposition.Retry;
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is NpgsqlException { IsTransient: false })
+        {
+            LogPermanentFailure(
+                exception,
+                envelope.Metadata.MessageId,
+                envelope.Payload.OrderId,
+                "database-permanent");
+            return MessageDisposition.Reject;
+        }
+        catch (NpgsqlException exception) when (!exception.IsTransient)
+        {
+            LogPermanentFailure(
+                exception,
+                envelope.Metadata.MessageId,
+                envelope.Payload.OrderId,
+                "database-permanent");
+            return MessageDisposition.Reject;
+        }
+        catch (NpgsqlException exception)
+        {
+            LogTransientFailure(
+                exception,
+                envelope.Metadata.MessageId,
+                envelope.Payload.OrderId,
+                "database-transient");
             return MessageDisposition.Retry;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -60,7 +92,11 @@ public sealed partial class OrderExecutionConsumer(
         }
         catch (Exception exception)
         {
-            LogTransientFailure(exception, envelope.Metadata.MessageId, envelope.Payload.OrderId);
+            LogTransientFailure(
+                exception,
+                envelope.Metadata.MessageId,
+                envelope.Payload.OrderId,
+                "unexpected");
             return MessageDisposition.Retry;
         }
     }
@@ -94,6 +130,20 @@ public sealed partial class OrderExecutionConsumer(
     [LoggerMessage(
         EventId = 3,
         Level = LogLevel.Warning,
-        Message = "Transient execution failure for message {MessageId} and order {OrderId}; the broker will redeliver it.")]
-    private partial void LogTransientFailure(Exception exception, Guid messageId, Guid orderId);
+        Message = "Transient execution failure ({FailureKind}) for message {MessageId} and order {OrderId}; the broker will redeliver it.")]
+    private partial void LogTransientFailure(
+        Exception exception,
+        Guid messageId,
+        Guid orderId,
+        string failureKind);
+
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Error,
+        Message = "Permanent execution failure ({FailureKind}) for message {MessageId} and order {OrderId}; rejecting it to the dead-letter queue.")]
+    private partial void LogPermanentFailure(
+        Exception exception,
+        Guid messageId,
+        Guid orderId,
+        string failureKind);
 }

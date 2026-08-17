@@ -9,6 +9,7 @@ ADRs record decisions that constrain future architecture, data ownership, depend
 | [0001](0001-use-rabbitmq-client.md) | Accepted | Use the official RabbitMQ .NET client behind local abstractions |
 | [0002](0002-use-modular-monorepo-and-schema-ownership.md) | Accepted | Use a modular monorepo with explicit schema ownership |
 | [0003](0003-build-synchronous-slice-before-messaging.md) | Accepted | Prove the synchronous trading slice before messaging |
+| [0004](0004-use-leased-outbox-and-explicit-recovery.md) | Accepted | Use leased outbox dispatch and explicit messaging recovery |
 
 ## Format
 

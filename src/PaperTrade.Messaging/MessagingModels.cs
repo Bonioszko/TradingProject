@@ -38,3 +38,28 @@ public interface IMessageConsumer
         Func<IncomingMessage, CancellationToken, Task<MessageDisposition>> handler,
         CancellationToken cancellationToken);
 }
+
+public interface IDeadLetterOperations
+{
+    Task<uint> GetReadyCountAsync(CancellationToken cancellationToken);
+
+    Task<DeadLetterReplayResult> ReplayNextAsync(CancellationToken cancellationToken);
+}
+
+public enum DeadLetterReplayResult
+{
+    Empty = 0,
+    Replayed = 1,
+    InvalidEnvelope = 2
+}
+
+public sealed class MessagePublishingException(
+    string errorCode,
+    bool isTransient,
+    string message,
+    Exception innerException) : Exception(message, innerException)
+{
+    public string ErrorCode { get; } = errorCode;
+
+    public bool IsTransient { get; } = isTransient;
+}

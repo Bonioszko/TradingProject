@@ -170,8 +170,116 @@ public sealed class OrderApiTests(PaperTradeApiFixture fixture) : IClassFixture<
     [Fact]
     public async Task PoisonOrderMessageIsDeadLettered()
     {
+        await fixture.PurgeQueueAsync(PaperTrade.Messaging.RabbitMqTopology.DeadLetterQueue);
         await fixture.PublishPoisonSubmittedMessageAsync();
         await fixture.WaitForDeadLetterAsync(TimeSpan.FromSeconds(10));
+
+        using var replay = await fixture.Client.PostAsync(
+            "/internal/operations/reliability/dead-letters/replay-next",
+            content: null);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, replay.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptedOrderRecoversAfterRabbitMqRestart()
+    {
+        var accountId = await fixture.CreateAccountAsync(1_000m);
+        await fixture.StopRabbitMqAsync();
+
+        OrderResponse submission;
+        try
+        {
+            using var response = await SubmitAsync(accountId, quantity: 1m, Guid.NewGuid().ToString("N"));
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            submission = Assert.IsType<OrderResponse>(
+                await response.Content.ReadFromJsonAsync<OrderResponse>(JsonOptions));
+            Assert.Equal(OrderStatus.Pending, submission.Status);
+            await WaitForOutboxFailureAsync(submission.OrderId, TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await fixture.StartRabbitMqAsync();
+        }
+
+        var completed = await WaitForTerminalOrderAsync(submission.OrderId, TimeSpan.FromSeconds(20));
+        Assert.Equal(OrderStatus.Filled, completed.Status);
+    }
+
+    [Fact]
+    public async Task GracefulStopDuringDatabaseOutageRequeuesAndCompletesAfterRecovery()
+    {
+        await fixture.StopWorkerAsync();
+        var accountId = await fixture.CreateAccountAsync(1_000m);
+        using var response = await SubmitAsync(accountId, quantity: 1m, Guid.NewGuid().ToString("N"));
+        var submission = Assert.IsType<OrderResponse>(
+            await response.Content.ReadFromJsonAsync<OrderResponse>(JsonOptions));
+        await fixture.WaitForSubmittedMessageAsync(TimeSpan.FromSeconds(10));
+
+        await fixture.StopPostgresAsync();
+        try
+        {
+            await fixture.StartWorkerAsync();
+            await fixture.WaitForSubmittedDeliveryInFlightAsync(TimeSpan.FromSeconds(10));
+            await fixture.StopWorkerAsync();
+        }
+        finally
+        {
+            await fixture.StartPostgresAsync();
+            await fixture.StartWorkerAsync();
+        }
+
+        var completed = await WaitForTerminalOrderAsync(submission.OrderId, TimeSpan.FromSeconds(30));
+        Assert.Equal(OrderStatus.Filled, completed.Status);
+    }
+
+    [Fact]
+    public async Task ConcurrentDispatchersLeaseEachOutboxMessageOnlyOnce()
+    {
+        var claimed = await fixture.ClaimFutureOutboxMessagesConcurrentlyAsync(6);
+
+        Assert.Equal(6, claimed.Count);
+        Assert.Equal(6, claimed.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task SuspendedOutboxMessageCanBeInspectedAndReplayed()
+    {
+        var messageId = await fixture.CreateSuspendedOutboxMessageAsync();
+
+        var snapshot = await fixture.Client.GetFromJsonAsync<PaperTrade.Api.Messaging.TradingReliabilitySnapshot>(
+            "/internal/operations/reliability",
+            JsonOptions);
+        Assert.NotNull(snapshot);
+        Assert.True(snapshot.OutboxSuspended > 0);
+
+        using var replay = await fixture.Client.PostAsync(
+            $"/internal/operations/reliability/outbox/{messageId}/replay",
+            content: null);
+        Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+
+        var published = await WaitForOutboxPublicationAsync(messageId, TimeSpan.FromSeconds(10));
+        Assert.NotNull(published);
+    }
+
+    [Fact]
+    public async Task RetentionOperationDeletesOnlyExpiredPublishedOutboxAndInboxRecords()
+    {
+        var records = await fixture.CreateExpiredReliabilityRecordsAsync();
+
+        using var cleanup = await fixture.Client.PostAsync(
+            "/internal/operations/reliability/retention/run",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, cleanup.StatusCode);
+
+        var retained = await fixture.QueryAsync(async context => new
+        {
+            Outbox = await context.OutboxMessages.AnyAsync(
+                message => message.MessageId == records.OutboxMessageId),
+            Inbox = await context.InboxMessages.AnyAsync(
+                message => message.MessageId == records.InboxMessageId)
+        });
+        Assert.False(retained.Outbox);
+        Assert.False(retained.Inbox);
     }
 
     [Fact]
@@ -219,9 +327,12 @@ public sealed class OrderApiTests(PaperTradeApiFixture fixture) : IClassFixture<
         return await fixture.Client.SendAsync(request);
     }
 
-    private async Task<OrderResponse> WaitForTerminalOrderAsync(Guid orderId)
+    private Task<OrderResponse> WaitForTerminalOrderAsync(Guid orderId) =>
+        WaitForTerminalOrderAsync(orderId, TimeSpan.FromSeconds(15));
+
+    private async Task<OrderResponse> WaitForTerminalOrderAsync(Guid orderId, TimeSpan timeout)
     {
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        var deadline = DateTimeOffset.UtcNow + timeout;
         OrderResponse? latest = null;
         while (DateTimeOffset.UtcNow < deadline)
         {
@@ -242,8 +353,81 @@ public sealed class OrderApiTests(PaperTradeApiFixture fixture) : IClassFixture<
             await Task.Delay(TimeSpan.FromMilliseconds(50));
         }
 
+        var outbox = await fixture.QueryAsync(context => context.OutboxMessages
+            .Where(message => message.AggregateId == orderId)
+            .Select(message => new
+            {
+                message.MessageId,
+                message.PublishAttempts,
+                message.PublishedAt,
+                message.NextAttemptAt,
+                message.LeaseExpiresAt,
+                message.SuspendedAt,
+                message.LastErrorCode,
+                message.LastError
+            })
+            .ToListAsync());
+        var diagnostics = string.Join(
+            "; ",
+            outbox.Select(message =>
+                $"{message.MessageId}: attempts={message.PublishAttempts}, published={message.PublishedAt}, " +
+                $"next={message.NextAttemptAt}, lease={message.LeaseExpiresAt}, " +
+                $"suspended={message.SuspendedAt}, error={message.LastErrorCode}: {message.LastError}"));
         throw new TimeoutException(
-            $"Order '{orderId}' did not become terminal. Last status: '{latest?.Status}'.");
+            $"Order '{orderId}' did not become terminal. Last status: '{latest?.Status}'. Outbox: {diagnostics}");
+    }
+
+    private async Task<DateTimeOffset?> WaitForOutboxPublicationAsync(Guid messageId, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var publishedAt = await fixture.QueryAsync(context => context.OutboxMessages
+                .Where(message => message.MessageId == messageId)
+                .Select(message => message.PublishedAt)
+                .SingleAsync());
+            if (publishedAt is not null)
+            {
+                return publishedAt;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+
+        throw new TimeoutException($"Outbox message '{messageId}' was not published after replay.");
+    }
+
+    private async Task WaitForOutboxFailureAsync(Guid orderId, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var failed = await fixture.QueryAsync(context => context.OutboxMessages.AnyAsync(message =>
+                message.AggregateId == orderId
+                && message.PublishedAt == null
+                && message.LastErrorCode != null));
+            if (failed)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+
+        var state = await fixture.QueryAsync(context => context.OutboxMessages
+            .Where(message => message.AggregateId == orderId)
+            .Select(message => new
+            {
+                message.PublishAttempts,
+                message.PublishedAt,
+                message.LeaseExpiresAt,
+                message.LastErrorCode
+            })
+            .SingleAsync());
+        throw new TimeoutException(
+            $"Outbox publication for order '{orderId}' did not fail while RabbitMQ was paused. " +
+            $"Attempts={state.PublishAttempts}, published={state.PublishedAt}, " +
+            $"lease={state.LeaseExpiresAt}, error={state.LastErrorCode}.");
     }
 
     private static JsonSerializerOptions CreateJsonOptions()

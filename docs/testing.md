@@ -1,6 +1,6 @@
 # Testing strategy
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-17
 
 ## Test levels
 
@@ -8,8 +8,8 @@ Last reviewed: 2026-08-16
 | --- | --- | --- | --- |
 | Domain unit | State transitions, validation, calculations, financial invariants | None | `PaperTrade.Domain.Tests` |
 | API integration | HTTP semantics plus real persistence behavior | PostgreSQL + RabbitMQ Testcontainers | `PaperTrade.Api.IntegrationTests` |
-| Messaging integration | Topology, confirms, manual acknowledgement, and redelivery | RabbitMQ Testcontainer | Covered in `PaperTrade.Api.IntegrationTests` for the Phase 3 slice |
-| Workflow integration | Submission through terminal order state | PostgreSQL + RabbitMQ Testcontainers | Implemented for Phase 3; portfolio projection remains planned |
+| Messaging integration | Topology, confirms, recovery, manual acknowledgement, redelivery, and dead-letter operations | RabbitMQ Testcontainer | Implemented through `PaperTrade.Api.IntegrationTests` |
+| Workflow integration | Submission, terminal state, and interruption recovery | PostgreSQL + RabbitMQ Testcontainers | Phase 4 implemented; portfolio projection remains planned |
 | UI end-to-end | User-critical journeys | Full distributed app | Planned for Phase 6 |
 
 Prefer the lowest level that proves the failure mode, but do not mock away the technology whose behavior is under test.
@@ -53,7 +53,7 @@ Changes to trading behavior should test:
 
 ## Asynchronous reliability matrix
 
-The asynchronous reliability matrix guides the Phase 3 baseline and Phase 4 hardening:
+The asynchronous reliability matrix is implemented for the current Phase 4 boundary:
 
 | Scenario | Required observable result |
 | --- | --- |
@@ -66,6 +66,11 @@ The asynchronous reliability matrix guides the Phase 3 baseline and Phase 4 hard
 | Business rejection | Order reaches rejected terminal state and publishes a result |
 | Poison/transient exhaustion | Bounded retries then visible dead-letter state |
 | Host cancellation | Graceful stop without acknowledging uncommitted work |
+| Two outbox dispatchers race | Disjoint leases; every eligible row is claimed once per lease window |
+| RabbitMQ is interrupted | Accepted order remains durable; classified backoff then reconnect/publish |
+| PostgreSQL is interrupted during delivery | No acknowledgement; stop/redelivery completes after recovery |
+| Suspended outbox message | Visible through operations/health and eligible only after explicit replay |
+| Expired reliability history | Only published outbox and old inbox rows are deleted |
 
 Use bounded polling on durable state rather than arbitrary sleeps for eventual assertions.
 

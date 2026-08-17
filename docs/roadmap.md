@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-08-17
 
 The roadmap is ordered by risk: prove state and transaction rules first, then cross a single asynchronous boundary, then harden it before expanding projections or UI.
 
@@ -46,7 +46,7 @@ Acceptance criteria:
 
 Out of scope: limit orders, portfolio projections, live market data, UI, authentication, and production deployment.
 
-## Phase 4 - Reliability hardening (next)
+## Phase 4 - Reliability hardening (complete)
 
 - Operational inspection/replay procedures and richer retry classification for the existing bounded retry/dead-letter baseline
 - Outbox batching, leasing, backoff, and recovery across publisher-confirm ambiguity
@@ -55,7 +55,17 @@ Out of scope: limit orders, portfolio projections, live market data, UI, authent
 - Fault-injection tests for broker/database/process interruptions
 - Reliability metrics, alerts, and runbook documentation
 
-## Phase 5 - Portfolio and market-data projections
+Acceptance criteria:
+
+- Multiple dispatchers claim disjoint outbox rows and crashed leases become reclaimable.
+- Broker outages produce bounded backoff and recover without losing an accepted order.
+- A confirm/database ambiguity can republish, while inbox idempotency prevents duplicate business effects.
+- Host shutdown stops intake, drains bounded in-flight work, and leaves uncommitted work for redelivery.
+- Suspended outbox rows and dead letters are visible and have deliberate replay procedures.
+- Published outbox and inbox history have documented, configurable cleanup horizons.
+- PostgreSQL, RabbitMQ, and process interruption paths are covered against real infrastructure.
+
+## Phase 5 - Portfolio and market-data projections (next)
 
 - Portfolio schema, inbox, immutable cash ledger, and positions
 - Idempotent filled/rejected event projection and rebuild strategy
