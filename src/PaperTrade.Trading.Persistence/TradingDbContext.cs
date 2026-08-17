@@ -14,7 +14,13 @@ public sealed class TradingDbContext(DbContextOptions<TradingDbContext> options)
 
     public DbSet<Instrument> Instruments => Set<Instrument>();
 
+    public DbSet<HttpIdempotencyRequest> HttpIdempotencyRequests => Set<HttpIdempotencyRequest>();
+
+    public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
+
     public DbSet<Order> Orders => Set<Order>();
+
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

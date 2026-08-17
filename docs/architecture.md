@@ -1,8 +1,8 @@
 # PaperTrade architecture
 
-Status: Phase 2 implemented; Phase 3 is the next target
+Status: Phase 3 implemented; Phase 4 is the next target
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Purpose
 
@@ -20,25 +20,32 @@ The architecture optimizes for explicit transaction boundaries, observable failu
 6. Prefer a modular monorepo and one local orchestrator until independent deployment is justified.
 7. Treat observability and failure recovery as part of feature completeness.
 
-## Current system: Phase 2
+## Current system: Phase 3
 
-The implemented workflow is synchronous:
+The implemented workflow crosses one asynchronous boundary:
 
 ```text
-Client
-  |
-  | POST /api/orders
-  v
-PaperTrade.Api ---- one EF transaction ----> PostgreSQL / trading schema
-  |                                         account debit
-  | 201 Created                             order terminal state
-  v                                         execution or rejection
-Client
+Client -- POST + Idempotency-Key --> API submission transaction
+  ^                                      |
+  | 202 pending                          | order + HTTP request + outbox
+  |                                      v
+  +------ GET order status          PostgreSQL trading schema
+                                         |
+                                  confirmed outbox publish
+                                         v
+                                     RabbitMQ
+                                         |
+                                   manual-ack delivery
+                                         v
+                                Execution Worker
+                                         |
+                     inbox + account + order + execution/rejection
+                          + result outbox in one transaction
 ```
 
-Aspire currently orchestrates PostgreSQL and the API. The execution and portfolio worker projects are inactive placeholders. Contracts and messaging projects establish dependency boundaries but do not yet contain production messaging behavior.
+Aspire orchestrates PostgreSQL, RabbitMQ, the API, and the execution worker. The portfolio worker remains inactive. The API-hosted trading outbox dispatcher publishes both submitted commands and terminal results from the shared trading schema.
 
-## Target system: first asynchronous slice
+## Target system: portfolio projection
 
 ```text
 Client
@@ -74,14 +81,14 @@ The API remains the query boundary initially. Splitting a query service is not j
 | Component | Responsibility | Allowed project dependencies | Current state |
 | --- | --- | --- | --- |
 | `PaperTrade.Domain` | Trading entities, state transitions, and financial invariants | None | Implemented |
-| `PaperTrade.Contracts` | Versioned integration commands and events | None | Placeholder |
-| `PaperTrade.Messaging` | RabbitMQ abstraction, topology, publishing, and consuming | Contracts | Placeholder |
+| `PaperTrade.Contracts` | Versioned integration commands and events | None | Implemented for order submission/results |
+| `PaperTrade.Messaging` | RabbitMQ abstraction, topology, publishing, and consuming | Contracts | Implemented |
 | `PaperTrade.Trading.Persistence` | EF Core mapping, migrations, and seed data for `trading` | Domain | Implemented |
 | `PaperTrade.ServiceDefaults` | Health, discovery, resilience, and OpenTelemetry defaults | Host infrastructure only | Implemented |
-| `PaperTrade.Api` | HTTP commands/queries and submission transaction | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Synchronous implementation |
-| `PaperTrade.Execution.Worker` | Authoritative asynchronous execution | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Inactive placeholder |
+| `PaperTrade.Api` | HTTP commands/queries, submission transaction, and trading outbox dispatch | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Asynchronous submission implemented |
+| `PaperTrade.Execution.Worker` | Authoritative asynchronous execution | Domain, Contracts, Messaging, Persistence, ServiceDefaults | Implemented |
 | `PaperTrade.Portfolio.Worker` | Idempotent portfolio projection | Contracts, Messaging, portfolio persistence, ServiceDefaults | Inactive placeholder |
-| `PaperTrade.AppHost` | Local resource graph and operational dependencies | Hosts and Aspire integrations | PostgreSQL + API |
+| `PaperTrade.AppHost` | Local resource graph and operational dependencies | Hosts and Aspire integrations | PostgreSQL + RabbitMQ + API + execution worker |
 
 Dependency rules:
 
@@ -109,7 +116,7 @@ One PostgreSQL server may host multiple schemas locally, but schema ownership an
 
 | Schema | Authority | Owned data | Status |
 | --- | --- | --- | --- |
-| `trading` | API submission and execution module | accounts/buying power, instruments, orders, executions; later HTTP idempotency, inbox, and outbox | Implemented core |
+| `trading` | API submission and execution module | accounts/buying power, instruments, orders, executions, HTTP idempotency, inbox, and outbox | Implemented |
 | `portfolio` | Portfolio projection module | immutable cash ledger, positions, portfolio inbox | Planned |
 | `market_data` | Market-data module | instrument reference data and price observations | Planned; seeded instruments currently live in `trading` |
 
@@ -117,13 +124,9 @@ Authoritative buying power belongs to `trading`. The portfolio cash ledger is an
 
 ## Transaction boundaries
 
-### Current synchronous execution
-
-One PostgreSQL transaction creates the order, checks/debits account cash, creates an execution or rejection, and stores the terminal order state. Optimistic account concurrency prevents two successful updates from silently overwriting each other.
-
 ### Asynchronous submission
 
-The API transaction will persist:
+The API transaction persists:
 
 - the normalized HTTP idempotency key and request identity;
 - a pending order;
@@ -133,7 +136,7 @@ Only after commit may the API return `202 Accepted`. Retrying the same idempoten
 
 ### Asynchronous execution
 
-For one submitted-order message, one trading transaction will:
+For one submitted-order message, one trading transaction:
 
 - insert the inbox message ID or recognize a duplicate;
 - validate the current order state;
@@ -175,11 +178,11 @@ HTTP idempotency and message deduplication are separate protections at separate 
 
 ## API semantics
 
-Phase 2 returns `201 Created` after synchronous completion. Phase 3 changes order submission to `202 Accepted` with an order resource that can be polled. Reads may be eventually consistent once projections are introduced. Error responses use stable HTTP semantics and Problem Details-compatible bodies without leaking internal exceptions.
+Order submission returns `202 Accepted` with a pending order resource that can be polled. The `Idempotency-Key` header is required. Reads may be eventually consistent once projections are introduced. Error responses use stable HTTP semantics and Problem Details-compatible bodies without leaking internal exceptions.
 
 ## Runtime, observability, and security
 
-Aspire is the local control plane for process lifecycle, dependency injection, readiness, logs, traces, and metrics. PostgreSQL state is intentionally persistent locally. RabbitMQ will be added to the AppHost with a health-gated reference when Phase 3 begins.
+Aspire is the local control plane for process lifecycle, dependency injection, readiness, logs, traces, and metrics. PostgreSQL and RabbitMQ state are intentionally persistent locally, and both hosts wait for their required resource references.
 
 Every process uses `PaperTrade.ServiceDefaults`. Telemetry must correlate HTTP submission, outbox dispatch, broker delivery, execution, and projection without recording credentials or sensitive payload values. Liveness indicates a process is alive; readiness may depend on required resources.
 
@@ -190,7 +193,7 @@ The current system is development-only and unauthenticated. Before any public de
 - Add a process or schema only when it gains clear ownership and operational value.
 - Publish additive contract changes when possible; use a new contract version for breaking changes.
 - Record choices that constrain future work in an ADR.
-- Preserve the synchronous tests as domain/persistence evidence while replacing HTTP completion semantics in Phase 3.
+- Preserve the domain and persistence evidence established by the synchronous baseline; do not restore synchronous HTTP execution.
 - Do not add limit orders, live pricing, UI, or authentication to the first asynchronous slice.
 
 See [ADR 0001](decisions/0001-use-rabbitmq-client.md), [ADR 0002](decisions/0002-use-modular-monorepo-and-schema-ownership.md), and [ADR 0003](decisions/0003-build-synchronous-slice-before-messaging.md).

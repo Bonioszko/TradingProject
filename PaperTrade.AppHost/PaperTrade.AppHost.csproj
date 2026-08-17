@@ -7,10 +7,12 @@
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\src\PaperTrade.Api\PaperTrade.Api.csproj" />
+    <ProjectReference Include="..\src\PaperTrade.Execution.Worker\PaperTrade.Execution.Worker.csproj" />
   </ItemGroup>
 
 </Project>

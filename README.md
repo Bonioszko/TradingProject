@@ -4,13 +4,13 @@ PaperTrade is a portfolio project for learning reliable asynchronous workflows i
 
 ## Current status
 
-Phase 2, the synchronous trading slice, is complete. The API stores orders, accounts, instruments, and executions in PostgreSQL. Market buy orders execute synchronously at seeded prices so domain and persistence behavior can be validated before RabbitMQ is introduced. The execution and portfolio workers remain inactive placeholders until Phase 3.
+Phase 3, asynchronous order submission and execution, is implemented. The API atomically stores a pending order, HTTP idempotency record, and outbox message before returning `202 Accepted`. RabbitMQ delivers the command to the execution worker, which atomically deduplicates it, debits authoritative buying power, fills or rejects the order, and writes the result to the outbox. The portfolio worker remains an inactive placeholder for Phase 5.
 
 ## Prerequisites
 
 - .NET SDK 10.0.400 or a compatible later .NET 10 feature band
 - Aspire CLI 13.4 or later
-- Docker Desktop with Linux containers (required for PostgreSQL and integration tests)
+- Docker Desktop with Linux containers (required for PostgreSQL, RabbitMQ, and integration tests)
 
 ## Build and test
 
@@ -28,15 +28,15 @@ To run the repository's formatting check locally:
 dotnet format PaperTrade.sln --verify-no-changes
 ```
 
-Start PostgreSQL and the API through Aspire:
+Start PostgreSQL, RabbitMQ, the API, and the execution worker through Aspire:
 
 ```powershell
 aspire start --non-interactive
 ```
 
-Do not start the AppHost with `dotnet run`; using the Aspire CLI preserves resource lifecycle, injected connection strings, health checks, and dashboard telemetry. PostgreSQL uses a persistent Docker volume, so data survives AppHost restarts.
+Do not start the AppHost with `dotnet run`; using the Aspire CLI preserves resource lifecycle, injected connection strings, health checks, and dashboard telemetry. PostgreSQL and RabbitMQ use persistent Docker volumes, so durable state survives AppHost restarts.
 
-## Try the synchronous order flow
+## Try the asynchronous order flow
 
 The development database contains one USD account with `$100,000` and three instruments:
 
@@ -51,6 +51,7 @@ Submit a market buy using the seeded account:
 ```http
 POST /api/orders
 Content-Type: application/json
+Idempotency-Key: demo-order-001
 
 {
   "accountId": "10000000-0000-0000-0000-000000000001",
@@ -61,7 +62,7 @@ Content-Type: application/json
 }
 ```
 
-Phase 2 returns `201 Created` with a filled or rejected order. Phase 3 will persist a pending order and outbox message, return `202 Accepted`, and move execution to the worker.
+The API returns `202 Accepted` with a pending order and a `Location` header. Poll that location until the execution worker changes the order to `filled` or `rejected`. Repeating the same request with the same idempotency key returns the same order; using that key for different content returns `409 Conflict`.
 
 Useful endpoints:
 
@@ -74,7 +75,7 @@ Useful endpoints:
 ## Project layout
 
 ```text
-PaperTrade.AppHost/                     PostgreSQL and API orchestration
+PaperTrade.AppHost/                     PostgreSQL, RabbitMQ, API, and worker orchestration
 src/PaperTrade.Api/                     HTTP commands and queries
 src/PaperTrade.Contracts/               Versioned integration contracts
 src/PaperTrade.Domain/                  Trading business rules
@@ -96,4 +97,4 @@ Start with the [documentation map](docs/README.md). The key references are the [
 
 ## Delivery roadmap
 
-Phases 1 and 2 are complete. Phase 3 is the asynchronous order submission and execution slice. See [the roadmap](docs/roadmap.md) for scope and acceptance criteria.
+Phases 1 through 3 are complete. Phase 4 hardens recovery, operations, and fault injection before portfolio projection work begins. See [the roadmap](docs/roadmap.md) for scope and acceptance criteria.

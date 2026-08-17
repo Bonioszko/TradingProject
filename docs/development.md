@@ -1,6 +1,6 @@
 # Development workflow
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Prerequisites
 
@@ -28,6 +28,7 @@ Start the AppHost in the background:
 ```powershell
 aspire start --non-interactive
 aspire wait api --status up --timeout 120
+aspire wait execution-worker --status running --timeout 120
 aspire describe
 ```
 
@@ -48,7 +49,7 @@ If only one running resource changed, prefer `aspire resource api rebuild` follo
 aspire stop
 ```
 
-The named `papertrade-postgres-data` volume and persistent PostgreSQL container are intentional. Do not delete them as routine cleanup.
+The named `papertrade-postgres-data` and `papertrade-rabbitmq-data` volumes and persistent containers are intentional. Do not delete them as routine cleanup.
 
 Before editing an unfamiliar AppHost API, use Aspire's documentation and API search:
 

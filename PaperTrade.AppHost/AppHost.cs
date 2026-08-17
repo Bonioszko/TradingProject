@@ -6,10 +6,24 @@ var postgres = builder.AddPostgres("postgres")
 
 var tradingDatabase = postgres.AddDatabase("papertrade");
 
-builder.AddProject<Projects.PaperTrade_Api>("api")
+var messaging = builder.AddRabbitMQ("messaging")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("papertrade-rabbitmq-data")
+    .WithManagementPlugin();
+
+var api = builder.AddProject<Projects.PaperTrade_Api>("api")
     .WithReference(tradingDatabase)
+    .WithReference(messaging)
     .WaitFor(tradingDatabase)
+    .WaitFor(messaging)
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/health");
+
+builder.AddProject<Projects.PaperTrade_Execution_Worker>("execution-worker")
+    .WithReference(tradingDatabase)
+    .WithReference(messaging)
+    .WaitFor(tradingDatabase)
+    .WaitFor(messaging)
+    .WaitFor(api);
 
 builder.Build().Run();

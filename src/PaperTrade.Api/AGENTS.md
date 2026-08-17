@@ -7,6 +7,6 @@
 - Keep request/response models separate from integration contracts and persisted entities.
 - Validate cheap shape constraints at the HTTP boundary and enforce business invariants in the domain/application transaction.
 - Use `AsNoTracking` for read-only EF queries and pass request cancellation tokens through all I/O.
-- Phase 2 intentionally executes market buys synchronously and returns `201 Created`. Phase 3 must deliberately replace this with a transaction that stores a pending order, HTTP idempotency state, and outbox message, then returns `202 Accepted`. Do not mix these phase semantics accidentally.
+- Phase 3 stores a pending order, HTTP idempotency state, and outbox message atomically, then returns `202 Accepted`. Do not reintroduce synchronous execution at the HTTP boundary.
 - Development-time migration application must remain environment-gated. Production migration strategy must be explicit before deployment.
 - Add API integration coverage for status codes, response shape, persistence effects, retries/idempotency, and concurrency behavior affected by a change.

@@ -207,6 +207,113 @@ namespace PaperTrade.Trading.Persistence.Migrations
                     b.ToTable("orders", "trading");
                 });
 
+            modelBuilder.Entity("PaperTrade.Trading.Persistence.HttpIdempotencyRequest", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("http_idempotency_requests", "trading");
+                });
+
+            modelBuilder.Entity("PaperTrade.Trading.Persistence.InboxMessage", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Consumer")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("Consumer", "ProcessedAt");
+
+                    b.ToTable("inbox_messages", "trading");
+                });
+
+            modelBuilder.Entity("PaperTrade.Trading.Persistence.OutboxMessage", b =>
+                {
+                    b.Property<Guid>("MessageId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AggregateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ContractType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("ContractVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Exchange")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PublishAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RoutingKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("MessageId");
+
+                    b.HasIndex("AggregateId");
+
+                    b.HasIndex("PublishedAt", "OccurredAt");
+
+                    b.ToTable("outbox_messages", "trading");
+                });
+
             modelBuilder.Entity("PaperTrade.Domain.Executions.Execution", b =>
                 {
                     b.HasOne("PaperTrade.Domain.Orders.Order", null)
@@ -227,6 +334,15 @@ namespace PaperTrade.Trading.Persistence.Migrations
                     b.HasOne("PaperTrade.Domain.Instruments.Instrument", null)
                         .WithMany()
                         .HasForeignKey("InstrumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PaperTrade.Trading.Persistence.HttpIdempotencyRequest", b =>
+                {
+                    b.HasOne("PaperTrade.Domain.Orders.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

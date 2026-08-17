@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
 
@@ -13,5 +14,6 @@
     <ProjectReference Include="..\PaperTrade.Domain\PaperTrade.Domain.csproj" />
     <ProjectReference Include="..\PaperTrade.Messaging\PaperTrade.Messaging.csproj" />
     <ProjectReference Include="..\PaperTrade.ServiceDefaults\PaperTrade.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\PaperTrade.Trading.Persistence\PaperTrade.Trading.Persistence.csproj" />
   </ItemGroup>
 </Project>

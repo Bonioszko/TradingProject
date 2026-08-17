@@ -1,15 +1,15 @@
 # Testing strategy
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Test levels
 
 | Level | Purpose | Infrastructure | Current project |
 | --- | --- | --- | --- |
 | Domain unit | State transitions, validation, calculations, financial invariants | None | `PaperTrade.Domain.Tests` |
-| API integration | HTTP semantics plus real persistence behavior | PostgreSQL Testcontainer | `PaperTrade.Api.IntegrationTests` |
-| Messaging integration | Topology, confirms, ack/nack, retry, redelivery, recovery | RabbitMQ Testcontainer | Planned for Phase 3 |
-| Workflow integration | Submission through terminal order state and projection | PostgreSQL + RabbitMQ through Aspire/Testcontainers | Planned for Phases 3-5 |
+| API integration | HTTP semantics plus real persistence behavior | PostgreSQL + RabbitMQ Testcontainers | `PaperTrade.Api.IntegrationTests` |
+| Messaging integration | Topology, confirms, manual acknowledgement, and redelivery | RabbitMQ Testcontainer | Covered in `PaperTrade.Api.IntegrationTests` for the Phase 3 slice |
+| Workflow integration | Submission through terminal order state | PostgreSQL + RabbitMQ Testcontainers | Implemented for Phase 3; portfolio projection remains planned |
 | UI end-to-end | User-critical journeys | Full distributed app | Planned for Phase 6 |
 
 Prefer the lowest level that proves the failure mode, but do not mock away the technology whose behavior is under test.
@@ -53,7 +53,7 @@ Changes to trading behavior should test:
 
 ## Asynchronous reliability matrix
 
-The first asynchronous slice is not complete until tests cover:
+The asynchronous reliability matrix guides the Phase 3 baseline and Phase 4 hardening:
 
 | Scenario | Required observable result |
 | --- | --- |

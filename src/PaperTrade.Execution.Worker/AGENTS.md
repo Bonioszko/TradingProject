@@ -1,6 +1,6 @@
 # Execution worker instructions
 
-This worker will become the authoritative asynchronous order executor in Phase 3. Until that phase is implemented, keep it an inactive placeholder rather than simulating business work.
+This worker is the authoritative asynchronous order executor introduced in Phase 3. Preserve that ownership while hardening reliability in later phases.
 
 - Consume submitted-order commands through `PaperTrade.Messaging`; do not expose broker APIs to domain behavior.
 - For each delivery, atomically deduplicate through the trading inbox, validate/transition the order, reserve or debit authoritative buying power, create an execution or rejection, update order status, and add the outgoing result to the trading outbox.

@@ -19,32 +19,45 @@ public static class OrderEndpoints
 
     private static async Task<IResult> SubmitOrderAsync(
         SubmitOrderRequest request,
-        SynchronousOrderService service,
+        HttpRequest httpRequest,
+        OrderSubmissionService service,
         CancellationToken cancellationToken)
     {
         var errors = Validate(request);
+        var idempotencyKey = httpRequest.Headers["Idempotency-Key"].ToString();
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            errors["Idempotency-Key"] = ["An Idempotency-Key header is required."];
+        }
+        else if (idempotencyKey.Trim().Length > 128)
+        {
+            errors["Idempotency-Key"] = ["The Idempotency-Key header cannot exceed 128 characters."];
+        }
+
         if (errors.Count > 0)
         {
             return Results.ValidationProblem(errors);
         }
 
-        var result = await service.SubmitAsync(request, cancellationToken);
+        var result = await service.SubmitAsync(request, idempotencyKey, cancellationToken);
         return result.Error switch
         {
-            OrderSubmissionError.None => Results.Created(
+            OrderSubmissionError.None => Results.Accepted(
                 $"/api/orders/{result.Order!.OrderId}",
                 result.Order),
             OrderSubmissionError.NotFound => Results.NotFound(
                 new ProblemDetailsResponse("Resource not found", result.ErrorMessage!)),
             OrderSubmissionError.Unsupported => Results.UnprocessableEntity(
                 new ProblemDetailsResponse("Unsupported order", result.ErrorMessage!)),
+            OrderSubmissionError.IdempotencyConflict => Results.Conflict(
+                new ProblemDetailsResponse("Idempotency conflict", result.ErrorMessage!)),
             _ => throw new UnreachableException()
         };
     }
 
     private static async Task<IResult> GetOrderAsync(
         Guid orderId,
-        SynchronousOrderService service,
+        OrderSubmissionService service,
         CancellationToken cancellationToken)
     {
         var order = await service.FindOrderAsync(orderId, cancellationToken);
@@ -53,7 +66,7 @@ public static class OrderEndpoints
 
     private static async Task<IResult> GetAccountAsync(
         Guid accountId,
-        SynchronousOrderService service,
+        OrderSubmissionService service,
         CancellationToken cancellationToken)
     {
         var account = await service.FindAccountAsync(accountId, cancellationToken);
@@ -61,7 +74,7 @@ public static class OrderEndpoints
     }
 
     private static async Task<IResult> GetInstrumentsAsync(
-        SynchronousOrderService service,
+        OrderSubmissionService service,
         CancellationToken cancellationToken) =>
         Results.Ok(await service.ListInstrumentsAsync(cancellationToken));
 

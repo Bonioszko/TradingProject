@@ -1,6 +1,6 @@
 # Delivery roadmap
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 The roadmap is ordered by risk: prove state and transaction rules first, then cross a single asynchronous boundary, then harden it before expanding projections or UI.
 
@@ -21,7 +21,7 @@ The roadmap is ordered by risk: prove state and transaction rules first, then cr
 
 This phase is intentionally retained as a tested baseline while Phase 3 changes the HTTP completion boundary.
 
-## Phase 3 - Asynchronous order submission and execution (next)
+## Phase 3 - Asynchronous order submission and execution (complete)
 
 Scope:
 
@@ -46,9 +46,9 @@ Acceptance criteria:
 
 Out of scope: limit orders, portfolio projections, live market data, UI, authentication, and production deployment.
 
-## Phase 4 - Reliability hardening
+## Phase 4 - Reliability hardening (next)
 
-- Bounded retry and dead-letter policies with operational inspection/replay procedures
+- Operational inspection/replay procedures and richer retry classification for the existing bounded retry/dead-letter baseline
 - Outbox batching, leasing, backoff, and recovery across publisher-confirm ambiguity
 - Connection/channel recovery and graceful shutdown under load
 - Inbox/outbox retention and cleanup policy

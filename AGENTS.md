@@ -2,7 +2,7 @@
 
 ## Mission and current boundary
 
-PaperTrade is a learning-focused portfolio application for building a reliable asynchronous trading workflow in .NET. Phase 2, the synchronous PostgreSQL-backed trading slice, is complete. The next planned milestone is Phase 3: asynchronous order submission and execution. Do not silently implement later roadmap phases while completing a narrower task.
+PaperTrade is a learning-focused portfolio application for building a reliable asynchronous trading workflow in .NET. Phase 3, asynchronous order submission and execution through PostgreSQL and RabbitMQ, is complete. The next planned milestone is Phase 4: reliability hardening. Do not silently implement later roadmap phases while completing a narrower task.
 
 Read `README.md`, `docs/architecture.md`, and `docs/roadmap.md` before changing behavior or boundaries. Read the relevant ADRs under `docs/decisions/` before changing a recorded decision.
 
